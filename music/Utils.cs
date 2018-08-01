@@ -17,9 +17,10 @@ namespace music
 		public static void TracksToFile(List<TrackInfo> tracks, string playlistFileName)
 		{
 			StreamWriter writer = new StreamWriter(CreateFileInfoToAssemblyDirectory(playlistFileName).FullName);
+
 			foreach (var t in tracks)
 			{
-				writer.WriteLine($"{t.Title};{t.Artist};{t.Duration}");
+				writer.WriteLine($"{t.Title};{t.Artist};{t.Duration};{t.Bitrate};{t.AddedToPlaylist};{t.Downloaded};{t.IsDownloaded};{t.Skip};{t.TitleFromZaycev}");
 			}
 			writer.Close();
 		}
@@ -32,7 +33,7 @@ namespace music
 			foreach (string l in lines)
 			{
 				string[] parts = l.Split(';');
-				ts.Add(new TrackInfo(parts[0], parts[1], parts[2]));
+				ts.Add(new TrackInfo(parts[0], parts[1], parts[2], parts[3], DateTime.Parse(parts[4]), DateTime.Parse(parts[5]), Boolean.Parse(parts[6]), Boolean.Parse(parts[7]), parts[8]));
 			}
 			return ts;
 		}
@@ -59,6 +60,25 @@ namespace music
 		{
 			Actions action = new Actions(driver);
 			action.MoveToElement(element).Perform();
+		}
+
+		public static bool IsElementVisible(IWebElement element)
+		{
+			return element.Displayed && element.Enabled;
+		}
+
+		public static bool TryFindElement(By by, out IWebElement element, IWebDriver driver)
+		{
+			try
+			{
+				element = driver.FindElement(by);
+			}
+			catch (NoSuchElementException ex)
+			{
+				element = null;
+				return false;
+			}
+			return true;
 		}
 
 		public static void SendTelegramToRMAdmins(string message, IWebDriver driver)

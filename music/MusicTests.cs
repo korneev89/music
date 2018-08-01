@@ -25,9 +25,10 @@ namespace music
 			//options.AddArgument("headless");
 
 			driver = new ChromeDriver(options);
-			wait = new WebDriverWait(driver, TimeSpan.FromSeconds(10));
+			wait = new WebDriverWait(driver, TimeSpan.FromSeconds(3));
 			
 			driver.Manage().Window.Size = new System.Drawing.Size(1600, 1000);
+			//driver.Manage().Window.Minimize();
 		}
 
 		[Test]
@@ -69,6 +70,7 @@ namespace music
 		}
 
 		[Test]
+		//[Retry(100)]
 		public void DownloadPlaylistFromZaycevNet()
 		{
 			driver.Url = "http://zaycev.net/search.html";
@@ -76,26 +78,112 @@ namespace music
 			string playlistFileName = "tracks.csv";
 			List<TrackInfo> tracks = Utils.TracksFromFile(playlistFileName);
 
-			foreach (var t in tracks)
+			bool sendPulse = true;
+			try
 			{
-				driver.FindElement(By.CssSelector("input#search-form-query")).SendKeys($"{t.Artist} - {t.Title}" + Keys.Enter);
-				var firstTrack = driver.FindElement(By.CssSelector(".musicset-track__title"));
-				Utils.MoveMouseOverElement(driver, firstTrack);
-				driver.FindElement(By.CssSelector(".musicset-track__download")).Click();
+				foreach (var t in tracks)
+				{
+					if (t.IsDownloaded || t.Skip)
+					{
+						continue;
+					}
 
-				wait.Until(ExpectedConditions.PresenceOfAllElementsLocatedBy(By.CssSelector("a#audiotrack-download-link")));
+					// skip track if any error and start downloading with next one
+					t.Skip = true;
 
-				// SCROLL to element
+					t.Downloaded = DateTime.Now;
+					bool findTrack = true;
+					var i = 1;
 
-				driver.FindElement(By.CssSelector("a#audiotrack-download-link")).Click();
+					do
+					{
+						driver.Url = "http://zaycev.net/search.html";
+						driver.FindElement(By.CssSelector("input#search-form-query")).SendKeys($"{t.Artist} - {t.Title}" + Keys.Enter);
 
-				driver.Url = "http://zaycev.net/search.html";
+						if (sendPulse)
+						{
+							Thread.Sleep(4000);
+							SendPulseDiscard();
+							sendPulse = false;
+						}
+
+						try
+						{
+							// there is no search results
+							if (driver.FindElements(By.CssSelector(":not(.track-is-banned) > .musicset-track__title a")).Count == 0)
+							{
+								findTrack = false;
+								continue;
+							}
+
+							driver.Url = driver.FindElements(By.CssSelector(":not(.track-is-banned) > .musicset-track__title a"))[i].GetAttribute("href");
+							var a = wait.Until(ExpectedConditions.PresenceOfAllElementsLocatedBy(By.CssSelector("a#audiotrack-download-link")));
+
+							Thread.Sleep(200);
+							Utils.ScrollElementIntoView(driver, driver.FindElement(By.CssSelector(".audiotrack__buttons")));
+							Utils.ScrollElementIntoView(driver, driver.FindElement(By.CssSelector(".audiotrack__size")));
+
+							string bitrate = driver.FindElement(By.CssSelector(".audiotrack__bitrate")).Text.Replace("битрейт ", String.Empty)
+								.Replace(" kbps", String.Empty);
+
+							string titleFromZaycev = driver.FindElement(By.CssSelector("h1")).Text;
+
+							if (driver.FindElement(By.CssSelector("a#audiotrack-download-link")).GetAttribute("href").Contains("play.google"))
+							{
+								i += 2;
+								continue;
+							}
+							driver.FindElement(By.CssSelector("a#audiotrack-download-link")).Click();
+							findTrack = false;
+
+							t.TitleFromZaycev = titleFromZaycev;
+							t.Bitrate = bitrate;
+							t.IsDownloaded = true;
+							t.Downloaded = DateTime.Now;
+							t.Skip = false;
+						}
+						catch (Exception e)
+						{
+							i +=2 ;
+						}
+
+						if (i > 10)
+						{
+							findTrack = false;
+							//Assert.Fail($"Больше 6 попыток скачать трек {t.Title}");
+						}
+					}
+					while (findTrack);
+				}
+			}
+
+			catch (Exception e)
+			{
+				Assert.Fail(e.Message);
+			}
+			finally
+			{
+				Utils.TracksToFile(tracks, playlistFileName);
+			}
+		}
+
+		private void SendPulseDiscard()
+		{
+			if (Utils.TryFindElement(By.CssSelector(".sendpulse-disallow-btn"), out IWebElement sendpulse, driver))
+			{
+				bool visible = Utils.IsElementVisible(sendpulse);
+				if (visible)
+				{
+					sendpulse.Click();
+				}
 			}
 		}
 
 		[TearDown]
 		public void Stop()
 		{
+			Thread.Sleep(10000);
+
 			driver.Quit();
 			driver = null;
 		}
